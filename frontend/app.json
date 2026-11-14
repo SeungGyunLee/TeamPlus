@@ -17,6 +17,7 @@
     "plugins": [
       "expo-router",
       "expo-font",
+      "./plugins/with-library-visibility",
       [
         "expo-navigation-bar",
         {

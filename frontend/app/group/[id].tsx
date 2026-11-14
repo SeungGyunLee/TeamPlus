@@ -5,7 +5,15 @@ import { Badge, Button, Card, Empty, Field, LinkRow, Row, Screen, Section, T } f
 import { Confirm } from '../../src/components/Confirm';
 import { useApp } from '../../src/state/AppProvider';
 import { Group, uid } from '../../src/domain/model';
+import { api } from '../../src/data/api';
+import { ServerGroup } from '../../src/components/ServerGroup';
+
 export default function GroupScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  return api ? <ServerGroup id={id}/> : <LocalGroup/>;
+}
+
+function LocalGroup() {
   const { id } = useLocalSearchParams<{ id: string }>(); const { data, update } = useApp();
   const [remove, setRemove] = useState<string | null>(null); const [deleteGroup, setDeleteGroup] = useState(false);
   const group = data?.groups.find(g => g.id === id);

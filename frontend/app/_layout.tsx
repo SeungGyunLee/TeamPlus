@@ -9,6 +9,7 @@ import * as SystemUI from 'expo-system-ui';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { PortalHost } from '@rn-primitives/portal';
 import { AppProvider, useApp } from '../src/state/AppProvider';
+import { RecommendationProvider } from '../src/state/RecommendationProvider';
 import { ThemeProvider, useTheme } from '../src/theme/theme';
 import { Button, Loading, Screen, T } from '../src/components/ui';
 function Content() {
@@ -21,4 +22,4 @@ function Content() {
   return <><StatusBar style={isDark ? 'light' : 'dark'}/>{Platform.OS === 'android' && <NavigationBar style={isDark ? 'light' : 'dark'}/>}<Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: c.background }, animation: 'slide_from_right' }}><Stack.Screen name="(tabs)"/><Stack.Screen name="group/[id]"/><Stack.Screen name="timetable/[id]"/><Stack.Screen name="availability/[id]"/><Stack.Screen name="place/[id]"/><Stack.Screen name="booking"/></Stack>
     {(saveError || saving) && <View accessibilityLiveRegion="polite" style={{ backgroundColor: saveError ? c.warningBg : c.surface, padding: 12, borderTopWidth: 1, borderColor: c.border }}><T size={12} color={saveError ? c.warning : c.muted}>{saveError ?? '변경사항 저장 중…'}</T>{saveError && <Button size="sm" variant="ghost" onPress={retrySave}>저장 다시 시도</Button>}</View>}<PortalHost/></>;
 }
-export default function RootLayout() { return <SafeAreaProvider><AppProvider><ThemeProvider><Content/></ThemeProvider></AppProvider></SafeAreaProvider>; }
+export default function RootLayout() { return <SafeAreaProvider><AppProvider><ThemeProvider><RecommendationProvider><Content/></RecommendationProvider></ThemeProvider></AppProvider></SafeAreaProvider>; }

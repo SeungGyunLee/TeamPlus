@@ -5,7 +5,14 @@ import { Confirm } from '../../src/components/Confirm';
 import { useApp } from '../../src/state/AppProvider';
 import { cancel } from '../../src/domain/booking';
 import { hourLabel, ROOMS } from '../../src/domain/model';
+import { api } from '../../src/data/api';
+
 export default function Reservations() {
+  if (api) return <Screen back title="예약 확인"><Empty title="중앙도서관 앱에서 예약을 확인해 주세요" description="추천한 장소의 실제 예약 내역은 중앙도서관 앱에서 확인해요."/><Button onPress={() => router.replace('/places')}>장소 둘러보기</Button></Screen>;
+  return <DemoReservations/>;
+}
+
+function DemoReservations() {
   const { data, update } = useApp(); const [filter, setFilter] = useState<'active' | 'cancelled'>('active'); const [cancelId, setCancelId] = useState<string | null>(null);
   const items = data?.reservations.filter(r => r.status === filter) ?? [];
   return <Screen title="내 가상 예약" eyebrow="YOUR NEXT GATHERING"><T muted>모임을 위한 공간과 시간을 한눈에.{'\n'}실제 집현전 예약 효력은 없습니다.</T><Row><Chip label="예약 내역" selected={filter === 'active'} onPress={() => setFilter('active')}/><Chip label="취소 내역" selected={filter === 'cancelled'} onPress={() => setFilter('cancelled')}/></Row>

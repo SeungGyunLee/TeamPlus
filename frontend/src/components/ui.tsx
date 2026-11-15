@@ -37,13 +37,13 @@ export function Chip({ label, selected, onPress, accessibilityLabel }: { label: 
   return <Pressable accessibilityLabel={accessibilityLabel ?? label} accessibilityRole={onPress ? 'button' : 'text'} accessibilityState={{ selected }} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 15, justifyContent: 'center', borderRadius: 10, borderWidth: 1, borderColor: selected ? c.primary : c.border, backgroundColor: selected ? c.soft : c.surface, opacity: pressed ? 0.7 : 1 })}><T size={13} bold={selected} color={selected ? c.primary : c.muted}>{label}</T></Pressable>;
 }
 export function Section({ title, extra }: { title: string; extra?: string }) { return <Row style={{ justifyContent: 'space-between' }}><T size={18} bold>{title}</T>{extra && <T size={12} muted>{extra}</T>}</Row>; }
-export function Badge({ children, tone = 'primary' }: React.PropsWithChildren<{ tone?: 'primary' | 'success' | 'muted' }>) {
+export function Badge({ children, tone = 'primary' }: React.PropsWithChildren<{ tone?: 'primary' | 'success' | 'warning' | 'muted' }>) {
   const { colors: c } = useTheme();
-  return <View style={{ paddingHorizontal: 9, paddingVertical: 5, borderRadius: 6, alignSelf: 'flex-start', backgroundColor: tone === 'success' ? c.successBg : tone === 'primary' ? c.soft : c.elevated }}><T size={11} bold color={tone === 'success' ? c.success : tone === 'primary' ? c.primary : c.muted}>{children}</T></View>;
+  return <View style={{ paddingHorizontal: 9, paddingVertical: 5, borderRadius: 6, alignSelf: 'flex-start', backgroundColor: tone === 'success' ? c.successBg : tone === 'warning' ? c.warningBg : tone === 'primary' ? c.soft : c.elevated }}><T size={11} bold color={tone === 'success' ? c.success : tone === 'warning' ? c.warning : tone === 'primary' ? c.primary : c.muted}>{children}</T></View>;
 }
 export function LinkRow({ title, description, onPress, arrow = false }: { title: string; description: string; onPress: () => void; arrow?: boolean }) {
   const { colors: c } = useTheme();
   return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}><Card><Row><View style={{ flex: 1, gap: 4 }}><T size={17} bold>{title}</T><T size={13} muted>{description}</T></View>{arrow ? <ArrowUpRight color={c.primary} size={22}/> : <ChevronRight color={c.muted} size={20}/>}</Row></Card></Pressable>;
 }
 export function Empty({ title, description }: { title: string; description: string }) { return <Card><T size={19} bold>{title}</T><T muted>{description}</T></Card>; }
-export function Loading() { const { colors: c } = useTheme(); return <View style={{ padding: 40, alignItems: 'center', gap: 16 }}><ActivityIndicator color={c.primary}/><T muted>기기에 저장한 내용을 불러오고 있어요.</T></View>; }
+export function Loading() { const { colors: c } = useTheme(); return <View style={{ padding: 40, alignItems: 'center', gap: 16 }}><ActivityIndicator color={c.primary}/><T muted>불러오고 있어요.</T></View>; }

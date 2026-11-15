@@ -1,5 +1,5 @@
 import React, { createContext, useContext } from 'react';
-import { useColorScheme, View } from 'react-native';
+import { useColorScheme } from 'react-native';
 import { vars } from 'nativewind';
 import Animated, { useAnimatedStyle, withTiming, ReduceMotion } from 'react-native-reanimated';
 import { useApp } from '../state/AppProvider';

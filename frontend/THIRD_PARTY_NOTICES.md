@@ -16,6 +16,7 @@ Installed versions, verified from local package metadata on 2026-11-01.
 | expo | 57.0.31 | MIT |
 | expo-constants | 57.0.22 | MIT |
 | expo-font | 57.0.4 | MIT |
+| expo-intent-launcher | 57.0.1 | MIT |
 | expo-linking | 57.0.13 | MIT |
 | expo-navigation-bar | 57.0.3 | MIT |
 | expo-router | 57.0.29 | MIT |

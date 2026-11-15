@@ -8,7 +8,15 @@ import { useApp } from '../src/state/AppProvider';
 import { useTheme } from '../src/theme/theme';
 import { book, isOccupied } from '../src/domain/booking';
 import { dateAt, HOURS, hourLabel, localDate, ROOMS } from '../src/domain/model';
+import { api } from '../src/data/api';
+import { LibraryLink } from '../src/components/LibraryLink';
+
 export default function Booking() {
+  if (api) return <Screen back title="집현전 예약"><T muted>집현전 예약은 중앙도서관 앱에서 진행해 주세요.</T><LibraryLink/></Screen>;
+  return <DemoBooking/>;
+}
+
+function DemoBooking() {
   const { data, update } = useApp(); const { colors: c } = useTheme();
   const [groupId, setGroupId] = useState(data?.groups[0]?.id ?? ''); const [roomId, setRoomId] = useState(ROOMS[0]!.id);
   const [date, setDate] = useState(dateAt(1)); const [hour, setHour] = useState<number | null>(null);

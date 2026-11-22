@@ -1,0 +1,66 @@
+---
+config:
+  theme: base
+  themeVariables:
+    fontFamily: "'Malgun Gothic', 'Segoe UI', sans-serif"
+    fontSize: 17px
+    lineColor: "#64748b"
+  flowchart:
+    htmlLabels: false
+    curve: linear
+    nodeSpacing: 29
+    rankSpacing: 41
+---
+flowchart TD
+  accTitle: KW Meet 앱 플로우 · Android 검증 반영
+  A["앱 실행"] --> H["홈 · 모임 목록"]
+  Login["로그인·회원가입 · 범위 제외"] -.-> H
+  H --> G["모임 생성·수정·삭제"]
+  G -.-> Invite["팀원 초대 수락 · 미구현"]
+  G --> M["팀원 추가·수정·삭제"]
+  M --> T["팀원 시간표 저장"]
+  T --> V["공통 공강 확인"]
+  V --> Q["자연어 조건·날짜 입력"]
+  G --> D["과제 공지 분석 · 테스트 응답"]
+  D --> S["마감일 저장·회의 단계"]
+  S --> Timeline["내 과제 타임라인·진행률"]
+  Timeline --> Progress["완료 체크·준비물 메모 저장"]
+  Timeline --> Context["회의 목적·준비물 전달"]
+  Context -->|"권장 날짜 사용"| Q
+  Q -->|"추가 질문"| F["추가 답변 제출"]
+  F -->|"테스트 응답으로 재요청"| Q
+  Q --> R["추천 점수·이유·참석자 확인"]
+  Q -.-> Ai["실제 Claude 응답 · 미검증"]
+  R --> P["추천 장소 상세"]
+  H --> L["장소 목록·상세"]
+  L --> U["날짜별 호실 시연 시간"]
+  P --> X["설치된 도서관 앱 실행 · 미검증"]
+  U --> X
+  X -->|"앱 미설치"| Web["설치 안내·공식 링크 열기"]
+  X -.-> Book["실제 집현전 예약 · 범위 제외"]
+  P --> C["추천 일정 미리보기"]
+  C --> W["Google 캘린더 링크 전달"]
+  C --> N["기본 캘린더 앱 · 실행 직후 종료"]
+  W -.-> Save["외부 캘린더 일정 편집·저장 · 미검증"]
+  N -.-> Save
+  H --> Local["로컬 시연 모드 · 기존"]
+  Local --> Demo["가상 예약·내역 · 기존"]
+
+  V --> Sim["참석자 선택·추가 공강 표시"]
+  Timeline --> ProjectShare["과제 진행 공유 미리보기"]
+  P --> MeetingShare["모임 제안 공유 미리보기"]
+  ProjectShare --> Share["Android 공유창 열기"]
+  MeetingShare --> Share
+  Share -.-> Send["다른 앱에서 전송 · 사용자 선택"]
+
+  classDef done fill:#dcf4e6,stroke:#23835b,color:#153b2a,stroke-width:2px
+  classDef partial fill:#fff1c7,stroke:#af7b12,color:#51370a,stroke-width:2px
+  classDef missing fill:#fbe0e1,stroke:#b93e49,color:#611d21,stroke-width:2px
+  classDef outside fill:#edf0f4,stroke:#788496,color:#343d4d,stroke-width:2px
+  class A,H,G,M,T,V,Q,F,R,P,L,U,D,S,Web,C,W,Local,Demo done
+  class Ai,X,N,Save partial
+  class Invite missing
+  class Login,Book outside
+
+  class Sim,Timeline,Progress,Context,ProjectShare,MeetingShare,Share done
+  class Send outside

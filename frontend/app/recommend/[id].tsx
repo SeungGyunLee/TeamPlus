@@ -12,7 +12,9 @@ import { useRecommendation } from '../../src/state/RecommendationProvider';
 const sample = '3명 모두 참석할 수 있고 콘센트가 있는 조용한 장소 추천해 줘.';
 
 export default function Recommend() {
-  const { id, dateFrom, dateTo } = useLocalSearchParams<{ id: string; dateFrom?: string; dateTo?: string }>();
+  const { id, dateFrom, dateTo, assignmentTitle, stageName, purpose, preparation } = useLocalSearchParams<{
+    id: string; dateFrom?: string; dateTo?: string; assignmentTitle?: string; stageName?: string; purpose?: string; preparation?: string;
+  }>();
   const group = useGroup(id);
   const { setResult } = useRecommendation();
   const task = useTask();
@@ -53,7 +55,8 @@ export default function Recommend() {
         setQuestion(undefined);
       }
       const response = await server.recommendations(id, resolved, from, to);
-      setResult({ groupId: id, from, to, response });
+      setResult({ groupId: id, from, to, response,
+        context: stageName ? { assignmentTitle: assignmentTitle || '제목 없는 과제', stageName, purpose: purpose ?? '', preparation: preparation ?? '' } : undefined });
       router.push({ pathname: '/recommend-results/[id]', params: { id } });
     });
   }
@@ -65,6 +68,7 @@ export default function Recommend() {
       : !group.group ? <Empty title="모임을 찾을 수 없어요" description="홈에서 모임을 선택해 주세요."/>
       : <>
         <T muted>{group.group.name} · 팀원 {group.group.members.length}명</T>
+        {stageName && <T size={13}>회의 단계 · {stageName}</T>}
         <Field multiline maxLength={500} editable={!task.busy} accessibilityLabel="추천 조건" placeholder={sample} value={text}
           onChangeText={value => { setText(value); resetInterpretation(); }} style={{ minHeight: 108, textAlignVertical: 'top' }}/>
         <Button variant="ghost" disabled={task.busy} onPress={() => { setText(sample); resetInterpretation(); }}>예시로 입력</Button>

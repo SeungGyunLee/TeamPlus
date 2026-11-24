@@ -11,6 +11,15 @@ def now_kst() -> datetime:
     return datetime.now(KST)
 
 
+def as_kst(dt: datetime) -> datetime:
+    """DB에서 읽은 시각을 KST로 맞춘다.
+
+    SQLite는 시간대를 빼고 돌려준다 (저장한 시각은 모두 KST라서 KST를 붙인다).
+    PostgreSQL은 UTC 시각으로 돌려준다 (KST로 바꾼다).
+    """
+    return dt.astimezone(KST) if dt.tzinfo else dt.replace(tzinfo=KST)
+
+
 def today_kst() -> date:
     # 서버가 UTC로 돌아도 한국 날짜 기준으로 계산되도록 KST를 명시한다.
     return now_kst().date()

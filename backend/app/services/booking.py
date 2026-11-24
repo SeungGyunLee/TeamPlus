@@ -1,25 +1,14 @@
-"""가상 예약 검증 규칙. 프론트 src/domain/booking.ts의 book()과 같은 순서·같은 오류 문구.
+"""예약 가능 기간·지난 시간 기준.
 
-1. 호실·모임이 있고, 시간이 09~18시 중 하나이고, 날짜가 올바른지
-2. 오늘부터 30일 안이고, 오늘이면 이미 지난 시간이 아닌지
-3. 모임 인원이 호실 정원을 넘지 않는지
-4. 그 시간이 이미 차 있지 않은지 (시연용 점유 + 다른 예약)
-5. 같은 모임이 같은 시간에 다른 예약을 갖고 있지 않은지
+실제 예약은 중앙도서관 앱에서 하고, 이 서비스는 추천·현황 조회만 한다.
+도서관 예약은 오늘부터 7일 안에서만 할 수 있어서 추천·호실 현황도 같은 기간만 다룬다.
 """
 
 from datetime import date, datetime, timedelta
 
-from app.timetable import BOOKING_DAYS, HOURS
+from app.timetable import BOOKING_DAYS
 
-MSG_INVALID = "예약 정보를 다시 확인해 주세요."
-MSG_RANGE = "현재 이후 30일 이내의 시간을 선택해 주세요."
-MSG_CAPACITY = "팀 인원보다 큰 인실을 선택해 주세요."
-MSG_OCCUPIED = "이미 예약된 시간입니다. 다른 시간을 선택해 주세요."
-MSG_GROUP_CONFLICT = "이 모임은 같은 시간에 다른 예약이 있어요."
-
-
-class BookingError(ValueError):
-    pass
+MSG_WINDOW = f"오늘부터 {BOOKING_DAYS}일 이내의 날짜만 볼 수 있어요."
 
 
 def is_past(day: date, hour: int, now: datetime) -> bool:
@@ -28,29 +17,17 @@ def is_past(day: date, hour: int, now: datetime) -> bool:
 
 
 def booking_window(now: datetime) -> tuple[date, date]:
+    """예약할 수 있는 첫날·마지막 날 (오늘 ~ 오늘+6일)"""
     today = now.date()
     return today, today + timedelta(days=BOOKING_DAYS - 1)
 
 
-def validate_booking(
-    *,
-    room_capacity: int | None,
-    group_exists: bool,
-    member_count: int,
-    day: date,
-    hour: int,
-    now: datetime,
-    occupied: bool,
-    group_conflict: bool,
-) -> None:
-    if room_capacity is None or not group_exists or hour not in HOURS:
-        raise BookingError(MSG_INVALID)
+def clamp_to_window(date_from: date, date_to: date, now: datetime) -> tuple[date, date] | None:
+    """요청 기간을 예약 가능 기간 안으로 자른다. 겹치는 날이 없으면 None.
+
+    과제 회의 단계의 권장 기간처럼 지난 날짜나 7일 뒤까지 걸친 기간도 받아서
+    예약할 수 있는 날만 추천하기 위함.
+    """
     first, last = booking_window(now)
-    if day < first or day > last or is_past(day, hour, now):
-        raise BookingError(MSG_RANGE)
-    if member_count > room_capacity:
-        raise BookingError(MSG_CAPACITY)
-    if occupied:
-        raise BookingError(MSG_OCCUPIED)
-    if group_conflict:
-        raise BookingError(MSG_GROUP_CONFLICT)
+    lo, hi = max(date_from, first), min(date_to, last)
+    return (lo, hi) if lo <= hi else None

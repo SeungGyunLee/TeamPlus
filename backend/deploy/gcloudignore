@@ -1,0 +1,12 @@
+# Cloud Build에 올릴 파일: backend/와 ai/만 (frontend·docs·비밀값·DB 파일은 올리지 않음)
+# 사용: 저장소 최상위에서 gcloud builds submit --ignore-file=backend/deploy/gcloudignore ...
+/*
+!/backend/
+!/ai/
+.env
+*.db
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.probe/

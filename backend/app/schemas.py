@@ -2,17 +2,27 @@
 
 프론트(TypeScript)와 같은 camelCase로 주고받는다. 예: inviteCode, groupId, updatedAt
 (요청은 snake_case로 보내도 받아준다.)
-필드 구성은 frontend/src/domain/model.ts의 Group·Member·Reservation·Place·Room과 맞춘다.
+필드 구성은 frontend/src/domain/model.ts의 Group·Member·Place·Room과 맞춘다.
 """
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 
 from app.ai.schemas import Milestone, ParsedConditions
-from app.timetable import BOOKING_DAYS, parse_slot_key
+from app.timetable import parse_slot_key
+from app.timeutil import as_kst
+
+
+def _with_tz(d: datetime) -> datetime:
+    # SQLite는 시간대 없이, PostgreSQL은 UTC로 돌려준다. 응답은 항상 KST(+09:00)로 맞춘다.
+    return as_kst(d)
+
+
+# 응답 시각은 항상 시간대 포함 (예: 2026-11-14T20:13:19+09:00). 프론트 new Date()로 바로 읽힌다.
+Timestamp = Annotated[datetime, AfterValidator(_with_tz)]
 
 
 class ApiModel(BaseModel):
@@ -25,11 +35,74 @@ def _check_slot_keys(keys: list[str]) -> list[str]:
     return sorted(set(keys), key=parse_slot_key)
 
 
+# ---------- 로그인 (와이어프레임 1~3B) ----------
+class EmailCheckRequest(ApiModel):
+    email: str = Field(max_length=254)
+
+
+class EmailCheckOut(ApiModel):
+    email: str
+    # true면 3A 로그인, false면 3B 회원가입 화면
+    exists: bool
+
+
+class SignupRequest(ApiModel):
+    email: str = Field(max_length=254)
+    password: str = Field(min_length=8, max_length=128)
+    # 보내면 서버에서도 password와 같은지 확인한다 (프론트에서만 확인해도 됨)
+    password_confirm: str | None = None
+    nickname: str = Field(min_length=1, max_length=30)
+
+
+class PasswordResetRequest(ApiModel):
+    email: str = Field(max_length=254)
+
+
+class PasswordResetConfirm(ApiModel):
+    email: str = Field(max_length=254)
+    # 메일로 받은 6자리 숫자
+    code: str = Field(pattern=r"^\d{6}$")
+    new_password: str = Field(min_length=8, max_length=128)
+    # 보내면 서버에서도 new_password와 같은지 확인한다
+    new_password_confirm: str | None = None
+
+
+class MessageOut(ApiModel):
+    message: str
+
+
+class LoginRequest(ApiModel):
+    email: str = Field(max_length=254)
+    password: str = Field(max_length=128)
+
+
+class UserOut(ApiModel):
+    id: str
+    email: str
+    nickname: str
+    created_at: Timestamp
+
+
+class UserUpdate(ApiModel):
+    nickname: str = Field(min_length=1, max_length=30)
+
+
+class AuthOut(ApiModel):
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    expires_at: Timestamp
+    user: UserOut
+
+
 # ---------- 모임·팀원 ----------
 class MemberOut(ApiModel):
     id: str
     name: str
+    # 계정이 연결된 팀원이면 그 사용자 id. 내 userId와 같으면 화면에 '나'
     user_id: str | None = None
+    email: str | None = None
+    # joined = 참여완료(또는 이름만 있는 팀원), invited = 초대 대기중
+    status: Literal["joined", "invited"]
     # 수업 있는 블록 키. "0-0" = 월요일 1교시
     busy: list[str]
 
@@ -37,17 +110,34 @@ class MemberOut(ApiModel):
 class GroupOut(ApiModel):
     id: str
     name: str
+    # 모임을 만든 사용자 id (모임 삭제 권한)
     owner_id: str
+    # 프론트 Group 형식 유지용. 초대는 이메일로 하므로 항상 null
     invite_code: str | None
     members: list[MemberOut]
-    updated_at: datetime
+    updated_at: Timestamp
 
 
 class GroupCreate(ApiModel):
     name: str = Field(default="새로운 모임", max_length=100)
-    # 비워 두면 프론트와 같이 짱구·철수·훈이 3명으로 시작
-    member_names: list[str] | None = Field(default=None, max_length=12)
-    owner_id: str = Field(default="local-owner", max_length=64)
+    # 만든 사람은 자동으로 참여. 계정 없는 팀원을 이름만으로 함께 넣고 싶을 때만 사용
+    member_names: list[str] = Field(default_factory=list, max_length=11)
+
+
+class InviteCreate(ApiModel):
+    email: str = Field(max_length=254)
+
+
+class InviteOut(ApiModel):
+    """나에게 온 초대 (내 이메일로 초대된 '대기중' 팀원 행)"""
+
+    member_id: str
+    group_id: str
+    group_name: str
+    # 초대한 사람 닉네임 (탈퇴 등으로 알 수 없으면 null)
+    inviter_name: str | None
+    # 참여한 팀원 수 (초대 대기중은 세지 않음)
+    member_count: int
 
 
 class GroupUpdate(ApiModel):
@@ -107,14 +197,13 @@ class RoomOut(ApiModel):
     laptop_space: bool
 
 
-SlotState = Literal["past", "mine", "occupied", "group_conflict", "available"]
+SlotState = Literal["past", "occupied", "available"]
 
 
 class SlotOut(ApiModel):
     hour: int
     label: str  # 16:00–17:00
-    # 프론트 예약 화면과 같은 우선순위:
-    # 지난 시간 > 내 예약 > 예약됨 > 모임 예약 있음 > 예약 가능
+    # 지난 시간 > 예약됨(도서관 예약 현황) > 예약 가능
     state: SlotState
     selectable: bool
 
@@ -126,25 +215,6 @@ class RoomAvailabilityOut(ApiModel):
     # groupId를 주면 그 모임 인원이 들어갈 수 있는지
     fits_group: bool | None
     slots: list[SlotOut]
-
-
-# ---------- 예약 ----------
-class ReservationCreate(ApiModel):
-    group_id: str
-    room_id: str
-    date: date
-    hour: int
-
-
-class ReservationOut(ApiModel):
-    id: str
-    group_id: str
-    group_name: str
-    room_id: str
-    date: date
-    hour: int
-    status: Literal["active", "cancelled"]
-    created_at: datetime
 
 
 # ---------- 조건 해석 (프롬프트 1) ----------
@@ -190,8 +260,6 @@ class RecommendationRequest(ApiModel):
     def _check_range(self):
         if self.date_to < self.date_from:
             raise ValueError("dateTo는 dateFrom보다 같거나 늦어야 해요.")
-        if (self.date_to - self.date_from).days >= BOOKING_DAYS:
-            raise ValueError(f"기간은 최대 {BOOKING_DAYS}일까지 조회할 수 있어요.")
         return self
 
 
@@ -220,8 +288,11 @@ class RecommendationResponse(ApiModel):
     candidates: list[CandidateOut]
     excluded_rooms: list[ExcludedRoomOut]
     # 시간대 단위로 빠진 개수
-    # booked(예약됨), notEnoughMembers(인원 부족), groupConflict(모임 예약 있음)
+    # booked(예약됨), notEnoughMembers(인원 부족)
     excluded_windows: dict[str, int]
+    # 실제로 찾아본 기간. 요청 기간을 오늘부터 7일 안으로 자른 값
+    date_from: date
+    date_to: date
     # 추천 이유 출처: ai | partial(일부 기본 문구) | fallback(전부 기본 문구) | none(요청 안 함)
     reasons_source: Literal["ai", "partial", "fallback", "none"]
     # timePreference를 코드가 알아듣고 시간 필터로 적용했는지

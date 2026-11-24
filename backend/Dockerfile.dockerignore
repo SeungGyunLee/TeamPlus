@@ -1,0 +1,27 @@
+# backend/Dockerfile 전용 제외 목록 (Docker BuildKit이 Dockerfile 옆의 이 파일을 자동으로 읽는다)
+# 빌드 위치가 저장소 최상위라서 경로는 TeamPlus/ 기준이다.
+
+# 일단 전부 빼고 (frontend/node_modules 같은 큰 폴더가 빌드에 딸려가지 않게)
+*
+
+# 필요한 것만 넣는다
+!backend/
+!ai/
+
+# 비밀값·로컬 파일은 절대 이미지에 넣지 않는다
+**/.env
+**/.env.*
+!backend/.env.example
+**/*.db
+**/__pycache__/
+**/*.pyc
+**/.venv/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.probe/
+
+# 서버 실행에 필요 없는 것
+backend/tests/
+backend/requirements-dev.txt
+backend/Dockerfile*
+backend/docker-compose.yml

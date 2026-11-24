@@ -1,15 +1,19 @@
 {
-  "_note": "프론트 frontend/src/data/seed.ts의 PLACES와 frontend/src/domain/model.ts의 ROOMS를 옮긴 시연용 데이터입니다. 실제 시설 정보와 다릅니다. rooms의 has_outlet·noise_level·laptop_space는 AI 조건 추천용으로 백엔드에서 추가한 예시값입니다.",
+  "_note": "rooms는 실제 중앙도서관 집현전 그룹학습실 기준입니다(2026-11-18 학교 API·도서관 앱으로 확인). 4인실 10·11실은 학교 API로 예약 현황을 알 수 없어 일단 뺐습니다(조회 방법 확인 중). 콘센트·노트북 공간은 모든 방에 있고 대화 가능한 공간(noise_level normal)입니다. places의 reading·cafe 장소는 프론트와 같은 시연용 데이터입니다.",
   "places": [
     {
       "id": "jiphyeon",
       "name": "집현전",
       "category": "교내",
-      "location": "광운대학교 · 교내 학습 공간",
-      "capacity": 8,
-      "tags": ["그룹 스터디", "화이트보드", "가상 예약"],
+      "location": "광운대학교 · 중앙도서관",
+      "capacity": 10,
+      "tags": [
+        "그룹 스터디",
+        "콘센트",
+        "도서관 앱 예약"
+      ],
       "description": "아이디어를 모으고, 함께 집중하는 시간. 인원에 맞는 작은 스터디룸에서 팀 프로젝트를 이어가세요.",
-      "note": "호실·인실·운영시간은 시연용 데이터입니다. 실제 시설 정보 및 예약 정책과 다릅니다.",
+      "note": "중앙도서관 집현전 그룹학습실(4인실 4~9실 · 6인실 2·3·12실 · 10인실 1·13실). 실제 예약은 중앙도서관 앱에서 해요.",
       "reservable": true
     },
     {
@@ -18,7 +22,11 @@
       "category": "교내",
       "location": "광운대학교 · 중앙도서관",
       "capacity": 6,
-      "tags": ["개방형", "조용한 대화", "콘센트"],
+      "tags": [
+        "개방형",
+        "조용한 대화",
+        "콘센트"
+      ],
       "description": "수업 사이 짧은 회의와 자료 정리를 위한 개방형 공간입니다. 함께 앉아 다음 할 일을 정리해 보세요.",
       "note": "실제 좌석 현황을 제공하지 않습니다. 위치·수용 인원·시설은 시연용 예시입니다.",
       "reservable": false
@@ -29,16 +37,27 @@
       "category": "카페",
       "location": "광운대역 인근 · 가상 장소",
       "capacity": 4,
-      "tags": ["자유로운 대화", "음료", "소규모"],
+      "tags": [
+        "자유로운 대화",
+        "음료",
+        "소규모"
+      ],
       "description": "편안한 분위기에서 아이디어를 나누는 소규모 모임 공간. 프로젝트의 첫 대화를 시작해 보세요.",
       "note": "실존 업소가 아닌 시연용 장소입니다. 외부 예약·영업시간 조회는 지원하지 않습니다.",
       "reservable": false
     }
   ],
   "rooms": [
-    {"id": "J201", "place_id": "jiphyeon", "name": "201호", "capacity": 4, "has_outlet": true, "noise_level": "quiet", "laptop_space": true},
-    {"id": "J202", "place_id": "jiphyeon", "name": "202호", "capacity": 4, "has_outlet": true, "noise_level": "normal", "laptop_space": true},
-    {"id": "J301", "place_id": "jiphyeon", "name": "301호", "capacity": 6, "has_outlet": false, "noise_level": "quiet", "laptop_space": true},
-    {"id": "J302", "place_id": "jiphyeon", "name": "302호", "capacity": 8, "has_outlet": true, "noise_level": "normal", "laptop_space": false}
+    {"id": "J01", "place_id": "jiphyeon", "name": "1실", "capacity": 10, "has_outlet": true, "noise_level": "normal", "laptop_space": true, "source_room_no": "1"},
+    {"id": "J02", "place_id": "jiphyeon", "name": "2실", "capacity": 6, "has_outlet": true, "noise_level": "normal", "laptop_space": true, "source_room_no": "2"},
+    {"id": "J03", "place_id": "jiphyeon", "name": "3실", "capacity": 6, "has_outlet": true, "noise_level": "normal", "laptop_space": true, "source_room_no": "3"},
+    {"id": "J04", "place_id": "jiphyeon", "name": "4실", "capacity": 4, "has_outlet": true, "noise_level": "normal", "laptop_space": true, "source_room_no": "4"},
+    {"id": "J05", "place_id": "jiphyeon", "name": "5실", "capacity": 4, "has_outlet": true, "noise_level": "normal", "laptop_space": true, "source_room_no": "5"},
+    {"id": "J06", "place_id": "jiphyeon", "name": "6실", "capacity": 4, "has_outlet": true, "noise_level": "normal", "laptop_space": true, "source_room_no": "6"},
+    {"id": "J07", "place_id": "jiphyeon", "name": "7실", "capacity": 4, "has_outlet": true, "noise_level": "normal", "laptop_space": true, "source_room_no": "7"},
+    {"id": "J08", "place_id": "jiphyeon", "name": "8실", "capacity": 4, "has_outlet": true, "noise_level": "normal", "laptop_space": true, "source_room_no": "8"},
+    {"id": "J09", "place_id": "jiphyeon", "name": "9실", "capacity": 4, "has_outlet": true, "noise_level": "normal", "laptop_space": true, "source_room_no": "9"},
+    {"id": "J12", "place_id": "jiphyeon", "name": "12실", "capacity": 6, "has_outlet": true, "noise_level": "normal", "laptop_space": true, "source_room_no": "12"},
+    {"id": "J13", "place_id": "jiphyeon", "name": "13실", "capacity": 10, "has_outlet": true, "noise_level": "normal", "laptop_space": true, "source_room_no": "13"}
   ]
 }

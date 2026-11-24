@@ -203,7 +203,6 @@ def recommend(
     max_missing: int,
     limit: int = 5,
     not_before: datetime | None = None,
-    blocked: frozenset[tuple[date, int]] = frozenset(),
 ) -> RecommendationResult:
     team_size = len(members)
     required = max(cond.capacity or 0, team_size)
@@ -217,7 +216,7 @@ def recommend(
         else:
             eligible.append(p)
 
-    excluded_windows = {"booked": 0, "not_enough_members": 0, "group_conflict": 0}
+    excluded_windows = {"booked": 0, "not_enough_members": 0}
     pool: list[WindowEvaluation] = []
     if team_size == 0 or not eligible:
         return RecommendationResult([], excluded_rooms, excluded_windows)
@@ -233,9 +232,6 @@ def recommend(
                     or (day == not_before.date() and s // 60 <= not_before.hour)
                 ):
                     continue  # 이미 지난 시간 (프론트와 같은 기준)
-                if (day, s) in blocked:
-                    excluded_windows["group_conflict"] += 1
-                    continue  # 이 모임이 그 시간에 이미 다른 예약을 가짐
                 if cond.time_filter and not cond.time_filter.allows(day, s, e):
                     continue
                 ev = evaluate_window(

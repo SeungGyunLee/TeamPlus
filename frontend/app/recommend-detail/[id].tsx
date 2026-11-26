@@ -4,12 +4,16 @@ import { api } from '../../src/data/api';
 import { RequestFeedback } from '../../src/components/ApiUi';
 import { LibraryLink } from '../../src/components/LibraryLink';
 import { Button, Card, Empty, Screen, T } from '../../src/components/ui';
-import { useResource } from '../../src/state/apiHooks';
+import { useGroup, useResource } from '../../src/state/apiHooks';
 import { useRecommendation } from '../../src/state/RecommendationProvider';
+import { useShareDraft } from '../../src/state/ShareProvider';
+import { meetingShareDraft } from '../../src/domain/collaboration';
 
 export default function RecommendationDetail() {
   const { id, candidateId } = useLocalSearchParams<{ id: string; candidateId: string }>();
   const { result } = useRecommendation();
+  const group = useGroup(id);
+  const { setDraft } = useShareDraft();
   const candidate = result?.groupId === id ? result.response.candidates.find(item => item.candidateId === candidateId) : undefined;
   const placeId = candidate?.room.placeId;
   const place = useResource(useCallback(signal => placeId ? api?.place(placeId, signal) : undefined, [placeId]));
@@ -23,6 +27,12 @@ export default function RecommendationDetail() {
     {place.value && <Card><T bold>{place.value.name} · {candidate.room.name}</T><T>{place.value.location}</T><T>{place.value.description}</T><T muted>{place.value.note}</T></Card>}
     <T muted>표시된 호실과 가능 시간은 시연용입니다. 실제 예약과 현황 확인은 중앙도서관 앱에서 진행해 주세요.</T>
     <LibraryLink/>
+    <RequestFeedback loading={group.loading} error={group.error} retry={group.reload}/>
+    <Button variant="outline" disabled={!group.group || group.loading || !!group.error} onPress={() => {
+      if (!group.group) return;
+      setDraft(meetingShareDraft(candidate, group.group, result?.context));
+      router.push('/share');
+    }}>모임 제안 공유</Button>
     <Button variant="outline" onPress={() => router.push({ pathname: '/calendar', params: {
       place: candidate.room.fullName, date: candidate.date, hour: String(candidate.hour),
     } })}>캘린더에 일정 추가</Button>

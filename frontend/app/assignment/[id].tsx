@@ -1,10 +1,11 @@
 import React, { useCallback, useState } from 'react';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { api } from '../../src/data/api';
 import { DataSource, RequestFeedback } from '../../src/components/ApiUi';
-import { Badge, Button, Card, Empty, Field, Screen, Section, T } from '../../src/components/ui';
-import { isIsoDate, kstDateAt, recommendationRangeError } from '../../src/domain/apiDates';
+import { Button, Card, Empty, Field, Screen, Section, T } from '../../src/components/ui';
+import { isIsoDate, kstDateAt } from '../../src/domain/apiDates';
 import { useResource, useTask } from '../../src/state/apiHooks';
+import { ProjectTimeline } from '../../src/components/ProjectTimeline';
 
 export default function AssignmentDetail() {
   const { id, assignmentId } = useLocalSearchParams<{ id: string; assignmentId: string }>();
@@ -46,21 +47,6 @@ export default function AssignmentDetail() {
       <Section title="중간 일정"/>
       <Card>{assignment.milestones.map((milestone, index) => <T key={index}>{milestone.name} · {milestone.date ?? '날짜 미정'}</T>)}</Card>
     </>}
-    <Section title="회의 단계"/>
-    {!assignment.stages.length && <Empty title="회의 단계가 없어요" description="과제 공지를 확인해 주세요."/>}
-    {assignment.stages.map(stage => {
-      const from = stage.windowStart ?? '';
-      const to = stage.windowEnd ?? '';
-      const rangeError = stage.dropped || !from || !to ? '추천할 날짜 범위가 없어요.' : recommendationRangeError(from, to);
-      return <Card key={stage.position}>
-        <Badge tone={stage.priority === 'must' ? 'primary' : 'muted'}>{stage.priority === 'must' ? '필수' : '선택'}</Badge>
-        <T size={18} bold>{stage.name}</T><T>{stage.purpose}</T>
-        <T muted>{from && to ? `${from} ~ ${to}` : '권장 날짜 미정'}</T>
-        {stage.anchoredTo && <T muted size={12}>기준 일정 · {stage.anchoredTo}</T>}
-        {rangeError ? <T muted size={13}>{rangeError}</T> : <Button variant="outline" onPress={() => router.push({
-          pathname: '/recommend/[id]', params: { id, dateFrom: from, dateTo: to },
-        })}>이 날짜로 장소 추천</Button>}
-      </Card>;
-    })}
+    <ProjectTimeline key={id + ':' + assignment.id} groupId={id} assignment={assignment}/>
   </Screen>;
 }

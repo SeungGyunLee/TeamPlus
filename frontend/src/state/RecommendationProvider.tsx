@@ -1,11 +1,13 @@
 import React, { createContext, useContext, useState } from 'react';
 import type { RecommendationResponse } from '../data/api';
+import type { RecommendationContext } from '../domain/collaboration';
 
 interface RecommendationRun {
   groupId: string;
   from: string;
   to: string;
   response: RecommendationResponse;
+  context?: RecommendationContext;
 }
 const Context = createContext<{ result?: RecommendationRun; setResult: (result: RecommendationRun) => void } | null>(null);
 

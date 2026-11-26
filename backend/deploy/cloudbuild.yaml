@@ -1,0 +1,22 @@
+# Google Cloud Build로 백엔드 이미지를 만들어 Artifact Registry에 올린다.
+# 저장소 최상위(TeamPlus/)에서 실행한다 (ai/ 폴더가 이미지에 필요해서):
+#   gcloud builds submit --config=backend/deploy/cloudbuild.yaml --ignore-file=backend/deploy/gcloudignore .
+# 순서 전체는 backend/deploy/GCP.md 참고.
+substitutions:
+  _REGION: asia-northeast3   # 서울
+  _REPO: teamplus            # Artifact Registry 저장소 이름
+  _TAG: latest
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]   # backend/Dockerfile.dockerignore를 쓰려면 필요
+    args:
+      - build
+      - -f
+      - backend/Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/backend:${_TAG}
+      - .
+
+images:
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/backend:${_TAG}

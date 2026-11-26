@@ -1,7 +1,7 @@
 """장소(places)와 예약 가능한 호실(rooms).
 
 - Place: 프론트 PLACES와 같은 필드 (장소 목록·상세 화면용)
-- Room : 프론트 ROOMS (집현전 201·202·301·302호) + AI 조건 추천용 속성(콘센트·소음 등)
+- Room : 실제 집현전 그룹학습실 (1~9·12·13실) + AI 조건 추천용 속성(콘센트·소음 등)
 
 다른 학교에서 쓸 때는 data/places.json만 바꾸면 된다.
 """
@@ -36,8 +36,8 @@ class Place(BaseModel):
 class Room(BaseModel):
     id: str
     place_id: str
-    name: str  # 예: 201호
-    full_name: str = ""  # 예: 집현전 201호 (불러올 때 채움)
+    name: str  # 예: 4실
+    full_name: str = ""  # 예: 집현전 4실 (불러올 때 채움)
     capacity: int
     room_type: RoomType = "study_room"
     has_outlet: bool = False
@@ -47,6 +47,8 @@ class Room(BaseModel):
     open_time: time = time(9, 0)
     close_time: time = time(19, 0)
     reservable: bool = True
+    # 학교 집현전 API의 방 번호. 없으면 이름의 숫자를 쓴다 (4실 → "4")
+    source_room_no: str | None = None
 
 
 @dataclass(frozen=True)

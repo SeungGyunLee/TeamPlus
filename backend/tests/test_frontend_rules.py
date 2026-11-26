@@ -7,15 +7,7 @@ import pytest
 from app.config import get_settings
 from app.places.catalog import load_catalog
 from app.places.provider import seed_occupied
-from app.services.booking import (
-    MSG_CAPACITY,
-    MSG_GROUP_CONFLICT,
-    MSG_INVALID,
-    MSG_OCCUPIED,
-    MSG_RANGE,
-    BookingError,
-    validate_booking,
-)
+from app.services.booking import booking_window, clamp_to_window, is_past
 from app.timetable import HOURS, busy_blocks, hour_label, period_label, period_range
 
 # 프론트 isSeedOccupied()를 node로 직접 돌려서 얻은 값
@@ -54,61 +46,41 @@ def test_timetable_constants_match_frontend():
         busy_blocks(["0-6"])  # 7교시 없음
 
 
-def test_catalog_matches_frontend_seed():
+def test_catalog_has_real_jiphyeonjeon_rooms():
+    # 실제 그룹학습실: 4인실 4~11실, 6인실 2·3·12실, 10인실 1·13실
+    # (10·11실은 학교 API로 현황을 알 수 없어 제외)
     catalog = load_catalog(get_settings().places_file)
     assert [p.id for p in catalog.places] == ["jiphyeon", "reading", "cafe"]
-    assert [(r.id, r.name, r.capacity) for r in catalog.rooms] == [
-        ("J201", "201호", 4),
-        ("J202", "202호", 4),
-        ("J301", "301호", 6),
-        ("J302", "302호", 8),
-    ]
-    assert catalog.room("J301").full_name == "집현전 301호"
+    by_size = {}
+    for r in catalog.rooms:
+        by_size.setdefault(r.capacity, []).append(int(r.source_room_no))
+    assert by_size == {10: [1, 13], 6: [2, 3, 12], 4: [4, 5, 6, 7, 8, 9]}
+    assert catalog.room("J12").full_name == "집현전 12실"
+    assert all(r.has_outlet and r.laptop_space and r.noise_level == "normal" for r in catalog.rooms)
 
 
-NOW = datetime(2026, 11, 2, 14, 30)
+NOW = datetime(2026, 11, 18, 14, 30)
 
 
-def check(**kw):
-    base = dict(
-        room_capacity=4,
-        group_exists=True,
-        member_count=3,
-        day=date(2026, 11, 3),
-        hour=10,
-        now=NOW,
-        occupied=False,
-        group_conflict=False,
-    )
-    base.update(kw)
-    validate_booking(**base)
+def test_booking_window_is_seven_days():
+    assert booking_window(NOW) == (date(2026, 11, 18), date(2026, 11, 24))
 
 
-def test_valid_booking_passes():
-    check()
+def test_past_hour_like_frontend():
+    assert is_past(date(2026, 11, 18), 14, NOW)  # 지금 시와 같은 시는 지난 시간
+    assert not is_past(date(2026, 11, 18), 15, NOW)
+    assert is_past(date(2026, 11, 17), 18, NOW)
 
 
 @pytest.mark.parametrize(
-    ("kw", "message"),
+    ("given", "expected"),
     [
-        ({"room_capacity": None}, MSG_INVALID),
-        ({"group_exists": False}, MSG_INVALID),
-        ({"hour": 19}, MSG_INVALID),
-        ({"hour": 8}, MSG_INVALID),
-        ({"day": date(2026, 11, 1)}, MSG_RANGE),  # 어제
-        ({"day": date(2026, 12, 2)}, MSG_RANGE),  # 오늘+30일 (범위는 +29일까지)
-        ({"day": date(2026, 11, 2), "hour": 14}, MSG_RANGE),  # 오늘 현재 시각과 같은 시
-        ({"member_count": 5}, MSG_CAPACITY),
-        ({"occupied": True}, MSG_OCCUPIED),
-        ({"group_conflict": True}, MSG_GROUP_CONFLICT),
+        ((date(2026, 11, 19), date(2026, 11, 20)), (date(2026, 11, 19), date(2026, 11, 20))),
+        ((date(2026, 11, 10), date(2026, 11, 20)), (date(2026, 11, 18), date(2026, 11, 20))),
+        ((date(2026, 11, 20), date(2026, 12, 31)), (date(2026, 11, 20), date(2026, 11, 24))),
+        ((date(2026, 11, 1), date(2026, 11, 17)), None),
+        ((date(2026, 11, 25), date(2026, 11, 30)), None),
     ],
 )
-def test_booking_rules_and_messages(kw, message):
-    with pytest.raises(BookingError, match=message):
-        check(**kw)
-
-
-def test_booking_boundaries():
-    check(day=date(2026, 12, 1))  # 오늘+29일은 가능
-    check(day=date(2026, 11, 2), hour=15)  # 오늘이라도 다음 시는 가능
-    check(member_count=4)  # 정원과 같으면 가능
+def test_clamp_to_window(given, expected):
+    assert clamp_to_window(*given, NOW) == expected

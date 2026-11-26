@@ -4,18 +4,15 @@ from datetime import date, time
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic.alias_generators import to_camel
-from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from app.ai import service as ai
 from app.ai.client import LLMClient, LLMError
 from app.config import Settings, get_settings
-from app.db import get_db
 from app.deps import get_catalog, get_group, get_llm, get_provider, member_schedules, require_llm
-from app.models import Group, Reservation
+from app.models import Group
 from app.occupancy import booked_map
 from app.places.catalog import Catalog
-from app.places.provider import ReservationProvider
+from app.places.provider import ProviderUnavailable, ReservationProvider
 from app.schemas import (
     CandidateOut,
     Conditions,
@@ -27,7 +24,7 @@ from app.schemas import (
     RoomOut,
 )
 from app.services import scoring
-from app.services.booking import booking_window
+from app.services.booking import MSG_WINDOW, clamp_to_window
 from app.services.time_preference import parse_time_preference
 from app.timetable import HOURS, hour_label
 from app.timeutil import now_kst, today_kst
@@ -86,35 +83,22 @@ def recommend(
     catalog: Catalog = Depends(get_catalog),
     provider: ReservationProvider = Depends(get_provider),
     llm: LLMClient | None = Depends(get_llm),
-    db: Session = Depends(get_db),
 ):
     now = now_kst()
-    first, last = booking_window(now)
-    if body.date_from < first or body.date_to > last:
-        raise HTTPException(422, "오늘부터 30일 이내의 날짜만 추천할 수 있어요.")
-
+    window = clamp_to_window(body.date_from, body.date_to, now)
+    if window is None:
+        raise HTTPException(422, MSG_WINDOW)
+    date_from, date_to = window
     members = member_schedules(group)
-    # 이 모임이 이미 예약한 시간은 후보에서 뺀다 (같은 시간 다른 방 예약 불가)
-    blocked = frozenset(
-        (r.date, r.hour * 60)
-        for r in db.scalars(
-            select(Reservation).where(
-                Reservation.group_id == group.id,
-                Reservation.status == "active",
-                Reservation.date >= body.date_from,
-                Reservation.date <= body.date_to,
-            )
-        )
-    )
     cond = to_search_conditions(body.conditions, today_kst())
     try:
         result = scoring.recommend(
             members,
             list(catalog.rooms),
-            lambda rooms, day: booked_map(db, provider, rooms, day),
+            lambda rooms, day: booked_map(provider, rooms, day),
             cond,
-            body.date_from,
-            body.date_to,
+            date_from,
+            date_to,
             duration_minutes=SLOT_MINUTES,
             slot_minutes=SLOT_MINUTES,
             day_start=DAY_START,
@@ -122,9 +106,8 @@ def recommend(
             max_missing=settings.max_missing_members,
             limit=body.limit,
             not_before=now.replace(tzinfo=None),
-            blocked=blocked,
         )
-    except NotImplementedError as e:
+    except ProviderUnavailable as e:
         raise HTTPException(503, str(e)) from e
 
     payloads = [scoring.candidate_payload(c) for c in result.candidates]
@@ -156,6 +139,8 @@ def recommend(
             for e in result.excluded_rooms
         ],
         excluded_windows={to_camel(k): v for k, v in result.excluded_windows.items()},
+        date_from=date_from,
+        date_to=date_to,
         reasons_source=source,
         time_preference_applied=cond.time_filter is not None,
     )

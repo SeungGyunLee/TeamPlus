@@ -244,13 +244,6 @@ def test_team_size_wins_when_user_says_fewer_people():
     assert "수용 인원 부족(최대 3명, 필요 4명)" in result.excluded_rooms[0].reasons
 
 
-def test_group_already_booked_hour_is_skipped():
-    blocked = frozenset({(WED, 16 * 60)})
-    result = run(team(), [place()], blocked=blocked, day_end=time(19))
-    assert all(c.evaluation.start_min != 16 * 60 for c in result.candidates)
-    assert result.excluded_windows["group_conflict"] >= 1
-
-
 def test_current_hour_counts_as_past_like_frontend():
     # 16:00 정각이어도 16시 슬롯은 지난 시간 (프론트: hour <= now.getHours())
     result = run(team(), [place()], not_before=datetime(2026, 11, 4, 16, 0), day_end=time(19))

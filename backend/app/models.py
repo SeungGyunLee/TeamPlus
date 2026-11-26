@@ -3,7 +3,7 @@
 import secrets
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy import JSON, Date, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -15,6 +15,43 @@ def new_id() -> str:
     return secrets.token_hex(8)
 
 
+class User(Base):
+    """계정 (와이어프레임 3A·3B). 학번·실명은 받지 않는다."""
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    # 소문자로 저장해서 대소문자가 달라도 같은 계정으로 본다
+    email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    nickname: Mapped[str] = mapped_column(String(30))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_kst)
+
+
+class AuthToken(Base):
+    """로그인 토큰. 원문은 사용자에게만 주고 DB에는 SHA-256 해시만 저장한다."""
+
+    __tablename__ = "auth_tokens"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_kst)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PasswordReset(Base):
+    """비밀번호 재설정 인증 코드 (메일로 보낸 6자리). 코드 원문은 저장하지 않는다."""
+
+    __tablename__ = "password_resets"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    code_hash: Mapped[str] = mapped_column(String(64))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)  # 틀린 횟수
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_kst)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class Group(Base):
     """모임 (프론트 Group)"""
 
@@ -22,6 +59,7 @@ class Group(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(String(100))
+    # 모임을 만든 사용자 id (삭제 권한)
     owner_id: Mapped[str] = mapped_column(String(64), default="local-owner")
     # 초대 기능용 (프론트는 아직 null). 미리 발급해 둔다.
     invite_code: Mapped[str | None] = mapped_column(String(16), unique=True, default=None)
@@ -40,59 +78,32 @@ class Group(Base):
 
 
 class Member(Base):
-    """팀원 (프론트 Member). busy = 수업 있는 블록 키 목록 ["0-0", "1-2", ...]"""
+    """팀원 (프론트 Member). busy = 수업 있는 블록 키 목록 ["0-0", "1-2", ...]
+
+    세 종류가 있다.
+    - 계정이 연결된 팀원: user_id 있음, status=joined (와이어프레임 '참여완료', 본인은 '나')
+    - 이메일로 초대만 된 팀원: user_id 없음, email 있음, status=invited ('대기중')
+    - 이름만 있는 팀원: user_id·email 없음, status=joined (계정 없이 시간표만 대신 입력)
+    """
 
     __tablename__ = "members"
+    __table_args__ = (
+        Index("uq_member_group_user", "group_id", "user_id", unique=True),
+        Index("uq_member_group_email", "group_id", "email", unique=True),
+    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     group_id: Mapped[str] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), index=True)
     position: Mapped[int] = mapped_column(Integer, default=0)
     name: Mapped[str] = mapped_column(String(50))
     user_id: Mapped[str | None] = mapped_column(String(64), default=None)
+    email: Mapped[str | None] = mapped_column(String(254), default=None, index=True)
+    status: Mapped[str] = mapped_column(String(10), default="joined")  # joined | invited
+    # 이메일로 초대한 사용자 id (5B '○○ 님이 초대했어요')
+    invited_by: Mapped[str | None] = mapped_column(String(32), default=None)
     busy: Mapped[list] = mapped_column(JSON, default=list)
 
     group: Mapped[Group] = relationship(back_populates="members")
-
-
-class Reservation(Base):
-    """가상 예약 (프론트 Reservation).
-
-    모임을 지워도 예약 내역은 '취소됨'으로 남아야 하므로 group_id에 외래키를 걸지 않고
-    모임 이름을 함께 저장한다.
-    """
-
-    __tablename__ = "reservations"
-    __table_args__ = (
-        # 같은 방·날짜·시간에 활성 예약은 하나만 (동시 요청이 와도 DB가 막는다)
-        Index(
-            "uq_active_room_slot",
-            "room_id",
-            "date",
-            "hour",
-            unique=True,
-            sqlite_where=text("status = 'active'"),
-            postgresql_where=text("status = 'active'"),
-        ),
-        # 같은 모임은 같은 시간에 활성 예약 하나만
-        Index(
-            "uq_active_group_slot",
-            "group_id",
-            "date",
-            "hour",
-            unique=True,
-            sqlite_where=text("status = 'active'"),
-            postgresql_where=text("status = 'active'"),
-        ),
-    )
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
-    group_id: Mapped[str] = mapped_column(String(32), index=True)
-    group_name: Mapped[str] = mapped_column(String(100))
-    room_id: Mapped[str] = mapped_column(String(32))
-    date: Mapped[date] = mapped_column(Date)
-    hour: Mapped[int] = mapped_column(Integer)
-    status: Mapped[str] = mapped_column(String(10), default="active")  # active | cancelled
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_kst)
 
 
 class Assignment(Base):
@@ -130,12 +141,14 @@ class MeetingStage(Base):
         ForeignKey("assignments.id", ondelete="CASCADE"), index=True
     )
     position: Mapped[int] = mapped_column(Integer)
-    name: Mapped[str] = mapped_column(String(100))
-    purpose: Mapped[str] = mapped_column(String(300))
+    # 이름·목적·묶인 중간 일정 이름은 AI가 만든 문장이라 길이를 정할 수 없다.
+    # (PostgreSQL은 정해진 길이를 넘으면 저장에 실패한다)
+    name: Mapped[str] = mapped_column(Text)
+    purpose: Mapped[str] = mapped_column(Text)
     priority: Mapped[str] = mapped_column(String(10))  # must | optional
     window_start: Mapped[date | None] = mapped_column(Date, default=None)
     window_end: Mapped[date | None] = mapped_column(Date, default=None)
-    anchored_to: Mapped[str | None] = mapped_column(String(100), default=None)
+    anchored_to: Mapped[str | None] = mapped_column(Text, default=None)
     dropped: Mapped[bool] = mapped_column(default=False)
 
     assignment: Mapped[Assignment] = relationship(back_populates="stages")

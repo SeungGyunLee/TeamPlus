@@ -1,0 +1,29 @@
+# 서버 한 대(또는 내 PC)에서 Docker로 띄우기
+#   cd TeamPlus/backend
+#   docker compose up -d --build     # 빌드 + 백그라운드 실행
+#   docker compose logs -f           # 로그 보기
+#   docker compose down              # 끄기 (DB는 볼륨에 남음)
+#
+# API 키 등 비밀값은 backend/.env에 둔다. 이 파일에는 쓰지 않는다.
+
+name: teamplus
+
+services:
+  api:
+    build:
+      context: ..                    # 저장소 최상위 (ai/ 폴더가 필요해서)
+      dockerfile: backend/Dockerfile
+    image: teamplus-backend
+    env_file:
+      - path: .env                   # backend/.env (없어도 뜨지만 AI 기능은 503)
+        required: false
+    environment:
+      DATABASE_URL: sqlite:////data/teamplus.db
+    ports:
+      - "8000:8000"
+    volumes:
+      - teamplus-data:/data          # 회원·모임·과제 DB. 컨테이너를 지워도 남는다
+    restart: unless-stopped
+
+volumes:
+  teamplus-data:

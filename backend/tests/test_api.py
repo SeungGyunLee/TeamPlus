@@ -1,6 +1,8 @@
-"""API 통합 테스트: 모임 → 시간표 → 공강 → 호실 현황 → 예약 → 추천 → 과제 단계."""
+"""API 통합 테스트: 모임 → 시간표 → 공강 → 호실 현황 → 추천 → 과제 단계."""
 
 from datetime import time, timedelta
+
+import pytest
 
 from app import deps
 from app.ai.client import LLMError
@@ -14,16 +16,22 @@ from app.ai.schemas import (
 )
 from app.main import app
 from app.places.provider import SeedReservationProvider, seed_occupied
-from app.services.booking import MSG_CAPACITY, MSG_GROUP_CONFLICT, MSG_OCCUPIED, MSG_RANGE
+from app.services.booking import MSG_WINDOW
 from app.timeutil import today_kst
-from tests.conftest import needs_ai_prompts
+from tests.conftest import needs_ai_prompts, signup
 
 TOMORROW = today_kst() + timedelta(days=1)
 
 
-def make_group(client, names=None, name="오픈소스 프로젝트"):
-    body = {"name": name} if names is None else {"name": name, "memberNames": names}
-    r = client.post("/api/groups", json=body)
+@pytest.fixture(autouse=True)
+def _logged_in(client):
+    """이 파일의 요청은 모두 '나'(me@example.com)로 로그인한 상태에서 보낸다."""
+    client.headers.update(signup(client, nickname="나"))
+
+
+def make_group(client, names=("짱구", "철수"), name="오픈소스 프로젝트"):
+    """만든 사람('나')이 자동으로 첫 번째 팀원이 되고, names는 계정 없는 팀원으로 들어간다."""
+    r = client.post("/api/groups", json={"name": name, "memberNames": list(names)})
     assert r.status_code == 201, r.text
     return r.json()
 
@@ -35,32 +43,32 @@ def set_busy(client, group, member_index, keys):
     return r.json()
 
 
-def book(client, group_id, room="J201", day=TOMORROW, hour=10):
-    return client.post(
-        "/api/reservations",
-        json={"groupId": group_id, "roomId": room, "date": str(day), "hour": hour},
-    )
-
-
 def test_health(client):
     assert client.get("/api/health").json() == {"status": "ok"}
 
 
 # ---------- 모임·팀원 ----------
-def test_create_group_with_frontend_defaults(client):
+def test_create_group_creator_joins_automatically(client):
+    me = client.get("/api/auth/me").json()
     g = make_group(client)
-    assert [m["name"] for m in g["members"]] == ["짱구", "철수", "훈이"]
+    assert [m["name"] for m in g["members"]] == ["나", "짱구", "철수"]
+    first = g["members"][0]
+    assert (first["userId"], first["email"], first["status"]) == (me["id"], me["email"], "joined")
+    assert all(m["userId"] is None and m["status"] == "joined" for m in g["members"][1:])
     assert all(m["busy"] == [] for m in g["members"])
     # 프론트와 같은 camelCase 필드
     assert {"id", "name", "ownerId", "inviteCode", "members", "updatedAt"} <= set(g)
-    assert g["ownerId"] == "local-owner" and len(g["inviteCode"]) == 8
+    assert g["ownerId"] == me["id"] and g["inviteCode"] is None
+
+    alone = client.post("/api/groups", json={}).json()
+    assert alone["name"] == "새로운 모임" and [m["name"] for m in alone["members"]] == ["나"]
 
 
-def test_group_needs_at_least_one_member(client):
-    assert client.post("/api/groups", json={"memberNames": []}).status_code == 400
-    g = make_group(client, names=["혼자"])
-    only = g["members"][0]["id"]
-    assert client.delete(f"/api/groups/{g['id']}/members/{only}").status_code == 400
+def test_owner_cannot_leave_own_group(client):
+    g = make_group(client, names=[])
+    me = g["members"][0]["id"]
+    r = client.delete(f"/api/groups/{g['id']}/members/{me}")
+    assert r.status_code == 400 and "삭제" in r.json()["detail"]
 
 
 def test_rename_edit_members_and_order(client):
@@ -81,22 +89,20 @@ def test_rename_edit_members_and_order(client):
 
     assert client.delete(f"/api/groups/{gid}/members/{new['id']}").status_code == 204
     names = [m["name"] for m in client.get(f"/api/groups/{gid}").json()["members"]]
-    assert names == ["짱구", "철수", "훈이"]
+    assert names == ["나", "짱구", "철수"]
 
 
-def test_list_groups_recent_first_and_invite_lookup(client):
+def test_list_groups_recent_first(client):
     a = make_group(client, name="A")
-    b = make_group(client, name="B")
+    make_group(client, name="B")
     client.patch(f"/api/groups/{a['id']}", json={"name": "A2"})
     assert [g["name"] for g in client.get("/api/groups").json()] == ["A2", "B"]
-    assert client.get(f"/api/groups/by-invite/{b['inviteCode']}").json()["id"] == b["id"]
-    assert client.get("/api/groups/by-invite/nope").status_code == 404
     assert client.get("/api/groups/nope").status_code == 404
 
 
 def test_member_of_other_group_is_404(client):
     a, b = make_group(client), make_group(client)
-    other = b["members"][0]["id"]
+    other = b["members"][1]["id"]
     assert (
         client.patch(f"/api/groups/{a['id']}/members/{other}", json={"name": "x"}).status_code
         == 404
@@ -126,101 +132,84 @@ def test_places_and_rooms(client):
     assert client.get("/api/places/jiphyeon").json()["reservable"] is True
     assert client.get("/api/places/nope").status_code == 404
     rooms = client.get("/api/rooms").json()
+    # 실제 집현전 그룹학습실 (10·11실은 학교 API로 현황을 알 수 없어 제외)
     assert [(r["id"], r["capacity"]) for r in rooms] == [
-        ("J201", 4),
-        ("J202", 4),
-        ("J301", 6),
-        ("J302", 8),
+        ("J01", 10),
+        ("J02", 6),
+        ("J03", 6),
+        ("J04", 4),
+        ("J05", 4),
+        ("J06", 4),
+        ("J07", 4),
+        ("J08", 4),
+        ("J09", 4),
+        ("J12", 6),
+        ("J13", 10),
     ]
-    assert rooms[0]["fullName"] == "집현전 201호" and rooms[0]["placeId"] == "jiphyeon"
+    assert rooms[3]["fullName"] == "집현전 4실" and rooms[3]["placeId"] == "jiphyeon"
+    assert all(r["hasOutlet"] and r["laptopSpace"] for r in rooms)
 
 
 def test_room_slot_states(client, provider):
     g = make_group(client)
-    provider.add("J202", TOMORROW, time(13), time(14))
-    assert book(client, g["id"], room="J201", hour=10).status_code == 201
+    provider.add("J05", TOMORROW, time(13), time(14))
     rooms = {
         r["roomId"]: r
         for r in client.get(
             "/api/rooms/availability", params={"date": str(TOMORROW), "groupId": g["id"]}
         ).json()
     }
-    j201 = {s["hour"]: s for s in rooms["J201"]["slots"]}
-    j202 = {s["hour"]: s for s in rooms["J202"]["slots"]}
-    assert len(j201) == 10 and j201[9]["label"] == "09:00–10:00"
-    assert j201[10]["state"] == "mine" and not j201[10]["selectable"]
-    assert j202[13]["state"] == "occupied"
-    assert j202[10]["state"] == "group_conflict"  # 같은 모임이 10시에 201호 예약함
-    assert j202[11]["state"] == "available" and j202[11]["selectable"]
-    assert rooms["J201"]["fitsGroup"] is True
+    j04 = {s["hour"]: s for s in rooms["J04"]["slots"]}
+    j05 = {s["hour"]: s for s in rooms["J05"]["slots"]}
+    assert len(j04) == 10 and j04[9]["label"] == "09:00–10:00"
+    assert j05[13]["state"] == "occupied" and not j05[13]["selectable"]
+    assert j05[11]["state"] == "available" and j05[11]["selectable"]
+    assert {s["state"] for s in j04.values()} == {"available"}
+    assert rooms["J04"]["fitsGroup"] is True
+
+
+def test_room_availability_only_for_next_seven_days(client):
+    today = today_kst()
+    ok = client.get("/api/rooms/availability", params={"date": str(today + timedelta(days=6))})
+    assert ok.status_code == 200
+    for day in (today - timedelta(days=1), today + timedelta(days=7)):
+        r = client.get("/api/rooms/availability", params={"date": str(day)})
+        assert r.status_code == 422 and r.json()["detail"] == MSG_WINDOW
 
 
 def test_room_too_small_for_group(client):
-    g = make_group(client, names=list("가나다라마"))
+    g = make_group(client, names=list("가나다라마"))  # 나 + 5명 = 6명
     rooms = {
         r["roomId"]: r
         for r in client.get(
             "/api/rooms/availability", params={"date": str(TOMORROW), "groupId": g["id"]}
         ).json()
     }
-    assert rooms["J201"]["fitsGroup"] is False
-    assert not any(s["selectable"] for s in rooms["J201"]["slots"])
-    assert rooms["J301"]["fitsGroup"] is True
+    assert rooms["J04"]["fitsGroup"] is False  # 4인실
+    assert not any(s["selectable"] for s in rooms["J04"]["slots"])
+    assert rooms["J02"]["fitsGroup"] is True  # 6인실
 
 
-# ---------- 예약 ----------
-def test_reservation_flow_matches_frontend_rules(client):
-    a, b = make_group(client, name="A"), make_group(client, name="B")
-    r = book(client, a["id"], room="J201", hour=10)
-    assert r.status_code == 201
-    res = r.json()
-    assert {"id", "groupId", "groupName", "roomId", "date", "hour", "status", "createdAt"} <= set(
-        res
-    )
-    assert (res["groupName"], res["status"]) == ("A", "active")
-
-    assert book(client, b["id"], room="J201", hour=10).json()["detail"] == MSG_OCCUPIED
-    assert book(client, a["id"], room="J202", hour=10).json()["detail"] == MSG_GROUP_CONFLICT
-    assert book(client, a["id"], day=today_kst() - timedelta(days=1)).json()["detail"] == MSG_RANGE
-    assert book(client, a["id"], day=today_kst() + timedelta(days=30)).json()["detail"] == MSG_RANGE
-    big = make_group(client, names=list("가나다라마"))
-    assert book(client, big["id"], room="J201", hour=11).json()["detail"] == MSG_CAPACITY
-    assert book(client, a["id"], room="NOPE").status_code == 400
-
-    # 취소하면 같은 슬롯을 다시 예약할 수 있다
-    cancelled = client.post(f"/api/reservations/{res['id']}/cancel").json()
-    assert cancelled["status"] == "cancelled"
-    assert book(client, b["id"], room="J201", hour=10).status_code == 201
-
-    mine = client.get("/api/reservations", params={"groupId": a["id"]}).json()
-    assert [x["status"] for x in mine] == ["cancelled"]
-    assert len(client.get("/api/reservations", params={"status": "active"}).json()) == 1
-
-
-def test_seed_occupied_slot_cannot_be_booked(client):
+def test_seed_occupied_slot_shows_as_occupied(client):
     app.dependency_overrides[deps.get_provider] = lambda: SeedReservationProvider()
-    g = make_group(client)
-    day = TOMORROW
-    room, hour = next(
-        (r, h)
-        for d in range(1, 10)
-        for r in ("J201", "J202", "J301", "J302")
+    room, day, hour = next(
+        (r, day, h)
+        for d in range(1, 7)
+        for r in ("J01", "J04", "J05", "J12")
         for h in range(9, 19)
         if seed_occupied(r, (day := today_kst() + timedelta(days=d)), h)
     )
-    r = book(client, g["id"], room=room, day=day, hour=hour)
-    assert r.json()["detail"] == MSG_OCCUPIED
+    rooms = client.get("/api/rooms/availability", params={"date": str(day)}).json()
+    slots = {s["hour"]: s["state"] for s in next(x for x in rooms if x["roomId"] == room)["slots"]}
+    assert slots[hour] == "occupied"
 
 
-def test_delete_group_cancels_its_reservations(client):
+def test_virtual_reservation_api_is_gone(client):
+    # 실제 예약은 중앙도서관 앱에서 한다 (팀 결정)
+    assert client.get("/api/reservations").status_code == 404
     g = make_group(client, name="지울 모임")
-    rid = book(client, g["id"]).json()["id"]
     assert client.delete(f"/api/groups/{g['id']}").status_code == 204
     assert client.get(f"/api/groups/{g['id']}").status_code == 404
-    kept = client.get("/api/reservations").json()
-    assert [(x["id"], x["status"], x["groupName"]) for x in kept] == [
-        (rid, "cancelled", "지울 모임")
-    ]
 
 
 # ---------- 추천 ----------
@@ -251,43 +240,59 @@ def test_recommendation_without_ai_uses_fallback_reasons(client):
     assert c["status"] == "green" and c["reason"]
     assert c["label"] == f"{c['hour']:02d}:00–{c['hour'] + 1:02d}:00"
     assert c["room"]["id"].startswith("J")
-    # 추천 결과의 roomId·date·hour로 바로 예약할 수 있다
-    assert (
-        book(client, g["id"], room=c["room"]["id"], day=TOMORROW, hour=c["hour"]).status_code == 201
-    )
 
 
-def test_recommendation_date_window(client):
+def test_recommendation_date_window_is_clamped_to_seven_days(client):
+    app.dependency_overrides[deps.get_llm] = lambda: None
     g = make_group(client)
-    past = str(today_kst() - timedelta(days=1))
+    today = today_kst()
+    url = f"/api/groups/{g['id']}/recommendations"
+
+    # 과제 단계 기간처럼 지난 날짜부터 한 달 뒤까지 걸쳐 와도 오늘~6일 뒤만 찾아본다
     r = client.post(
-        f"/api/groups/{g['id']}/recommendations", json={"dateFrom": past, "dateTo": past}
-    )
-    assert r.status_code == 422
+        url,
+        json={
+            "dateFrom": str(today - timedelta(days=3)),
+            "dateTo": str(today + timedelta(days=30)),
+            "limit": 20,
+        },
+    ).json()
+    assert (r["dateFrom"], r["dateTo"]) == (str(today), str(today + timedelta(days=6)))
+    assert all(r["dateFrom"] <= c["date"] <= r["dateTo"] for c in r["candidates"])
+
+    # 기간 전체가 7일 밖이면 422
+    for a, b in ((-5, -1), (7, 20)):
+        r = client.post(
+            url,
+            json={
+                "dateFrom": str(today + timedelta(days=a)),
+                "dateTo": str(today + timedelta(days=b)),
+            },
+        )
+        assert r.status_code == 422 and r.json()["detail"] == MSG_WINDOW
+    bad = client.post(url, json={"dateFrom": str(today + timedelta(days=2)), "dateTo": str(today)})
+    assert bad.status_code == 422
 
 
 @needs_ai_prompts
 def test_full_recommendation_flow(client, fake_llm, provider):
     g = make_group(client)
-    # 철수: 수요일 5교시(15:00~16:30) 수업
-    wed = TOMORROW
-    while wed.weekday() != 2:
-        wed += timedelta(days=1)
-    set_busy(client, g, 2, ["2-4"])
+    # 7일 안의 평일 하루. 세 번째 팀원(철수)은 그날 5교시(15:00~16:30) 수업
+    day = next(d for d in (today_kst() + timedelta(days=i) for i in range(1, 7)) if d.weekday() < 5)
+    set_busy(client, g, 2, [f"{day.weekday()}-4"])
 
     fake_llm.set(
         ParsedConditions,
         conditions(
-            capacity=3, needs_outlet=True, room_type="study_room", time_preference="수요일 3시 이후"
+            capacity=3, needs_outlet=True, room_type="study_room", time_preference="오후 3시 이후"
         ),
     )
-    cond = client.post(f"/api/groups/{g['id']}/conditions", json={"text": "수요일 3시 이후"}).json()
+    cond = client.post(f"/api/groups/{g['id']}/conditions", json={"text": "오후 3시 이후"}).json()
     assert cond["type"] == "conditions"
     assert cond["conditions"]["needsOutlet"] is True  # camelCase
 
-    # 201호는 17시 점유, 이 모임은 18시에 이미 302호 예약
-    provider.add("J201", wed, time(17), time(18))
-    assert book(client, g["id"], room="J302", day=wed, hour=18).status_code == 201
+    # 4실은 17시에 도서관 예약이 있음
+    provider.add("J04", day, time(17), time(18))
     fake_llm.set(
         RecommendationReasons,
         RecommendationReasons(
@@ -296,21 +301,21 @@ def test_full_recommendation_flow(client, fake_llm, provider):
     )
     rec = client.post(
         f"/api/groups/{g['id']}/recommendations",
-        json={"conditions": cond["conditions"], "dateFrom": str(wed), "dateTo": str(wed)},
+        json={"conditions": cond["conditions"], "dateFrom": str(day), "dateTo": str(day)},
     ).json()
 
     assert rec["timePreferenceApplied"] is True
     hours = [(c["room"]["id"], c["hour"]) for c in rec["candidates"]]
     assert all(h >= 15 for _, h in hours)
-    assert ("J201", 17) not in hours
-    assert all(h != 18 for _, h in hours)  # 같은 모임 예약 시간 제외
-    assert rec["excludedWindows"]["groupConflict"] >= 1
+    assert ("J04", 17) not in hours
+    assert rec["excludedWindows"]["booked"] >= 1
     first = rec["candidates"][0]
-    # 15·16시는 철수 수업(15:00~16:30)과 겹침 → 17시가 첫 초록. 콘센트 있는 4인실 중 202호
-    assert (first["status"], first["hour"], first["room"]["id"]) == ("green", 17, "J202")
+    # 15·16시는 철수 수업(15:00~16:30)과 겹침 → 17시가 첫 초록.
+    # 인원(3명)에 가장 딱 맞는 4인실 중 비어 있는 첫 방 = 5실
+    assert (first["status"], first["hour"], first["room"]["id"]) == ("green", 17, "J05")
     assert first["reason"] == "AI 설명"
     assert rec["reasonsSource"] == "partial"
-    assert '"place_name": "집현전 202호"' in fake_llm.calls[-1]["system"]
+    assert '"place_name": "집현전 5실"' in fake_llm.calls[-1]["system"]
 
 
 @needs_ai_prompts

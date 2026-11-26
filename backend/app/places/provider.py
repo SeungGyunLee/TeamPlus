@@ -3,18 +3,28 @@
 추천·예약 로직은 ReservationProvider 인터페이스에만 의존한다.
 - SeedReservationProvider: 프론트 isSeedOccupied()와 같은 계산식의 시연용 점유.
   앱과 서버의 '예약됨' 표시가 일치한다.
-- JiphyeonjeonProvider: 실제 집현전 연동 자리 (구현 예정)
-사용자가 이 서비스에서 만든 예약(DB)은 여기가 아니라 reservations 테이블에서 따로 합친다.
+- JiphyeonjeonProvider: 실제 집현전 현황 조회 (app/places/jiphyeonjeon.py, 학교 비공개 API)
 """
 
+import re
 from collections.abc import Mapping, Sequence
 from datetime import date, time
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from app.places.catalog import Room
 from app.timetable import HOURS
 
+if TYPE_CHECKING:
+    from app.places.jiphyeonjeon import JiphyeonjeonClient
+
 Booked = list[tuple[time, time]]
+
+
+class ProviderUnavailable(Exception):
+    """예약 현황을 지금 가져올 수 없음 → API는 503으로 응답한다.
+
+    메시지는 사용자에게 그대로 보여준다.
+    """
 
 
 class ReservationProvider(Protocol):
@@ -62,24 +72,43 @@ class StaticReservationProvider:
         return {r.id: list(self.bookings.get((r.id, day), [])) for r in rooms}
 
 
-class JiphyeonjeonProvider:
-    """실제 광운대 중앙도서관 집현전 예약 현황 연동 자리.
+def school_room_no(room: Room) -> str:
+    """학교 API의 방 번호. places.json의 source_room_no가 없으면 이름의 숫자(집현 4실 → 4)"""
+    return room.source_room_no or re.sub(r"\D", "", room.name)
 
-    TODO: '집현전 현황 조회 API 연동 안내' 문서 확인 후 구현.
-    - 실제 방 ID 매핑, 그 날 예약된 시간대를 (time, time) 목록으로 돌려줄 것
-    - 학생 계정 비밀번호를 서버에 저장하는 방식은 피할 것
-    - 응답은 짧게(예: 1~5분) 캐시해서 호출 수를 줄일 것
+
+class JiphyeonjeonProvider:
+    """실제 집현전 예약 가능 맵을 읽어 '차 있는 시간'으로 바꿔준다.
+
+    예약 불가인 칸과 맵에 없는 시간(운영 시간 밖)은 모두 차 있는 것으로 본다.
     """
 
+    def __init__(self, client: "JiphyeonjeonClient"):
+        self.client = client
+
     def get_booked(self, rooms: Sequence[Room], day: date) -> dict[str, Booked]:
-        raise NotImplementedError(
-            "집현전 연동은 아직 구현되지 않았어요. RESERVATION_PROVIDER=mock을 쓰세요."
-        )
+        from app.places.jiphyeonjeon import busy_from_slots
+
+        return {
+            r.id: busy_from_slots(self.client.room_slots(school_room_no(r), day)) for r in rooms
+        }
 
 
-def build_provider(name: str) -> ReservationProvider:
+def build_provider(
+    name: str,
+    *,
+    status_url: str | None = None,
+    map_url: str | None = None,
+    cache_seconds: float = 180,
+    timeout: float = 5.0,
+) -> ReservationProvider:
     if name == "mock":
         return SeedReservationProvider()
     if name == "jiphyeonjeon":
-        return JiphyeonjeonProvider()
+        from app.places.jiphyeonjeon import JiphyeonjeonClient
+
+        client = JiphyeonjeonClient(
+            status_url, map_url, timeout=timeout, cache_seconds=cache_seconds
+        )
+        return JiphyeonjeonProvider(client)
     raise ValueError(f"알 수 없는 RESERVATION_PROVIDER: {name}")
